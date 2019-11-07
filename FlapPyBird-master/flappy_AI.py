@@ -247,7 +247,7 @@ def mainGame(movementInfo):
   players = []
 
 
-  for i in range(100):
+  for i in range(1000):
     players.append(
       Player(playerx,playery,playerIndex,playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr, playerFlapAcc,
              playerFlapped, 0))

@@ -567,3 +567,4 @@ def getHitmask(image):
 
 if __name__ == '__main__':
   main()
+  print("TEST COMMIT")

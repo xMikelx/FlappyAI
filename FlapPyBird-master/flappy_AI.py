@@ -10,6 +10,9 @@ FPS = 30
 SCREENWIDTH = 288
 SCREENHEIGHT = 512
 
+max_score_over_gen = 0
+n_generations = 0
+
 PIPEGAPSIZE = 100  # gap between upper and lower part of pipe
 BASEY = SCREENHEIGHT * 0.79
 # image, sound and hitmask  dicts
@@ -19,9 +22,10 @@ IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 # Object player to create multples instances
 class Player:
   def __init__(self, playerx, playery, playerIndex, playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr,
-               playerFlapAcc, playerFlapped, playerScore):
+               playerFlapAcc, playerFlapped, playerScore, playerScore_i):
     self.playerx = playerx
     self.playery = playery
+    self.playerScore_i = playerScore_i
     self.playerIndex = playerIndex
     self.playerVelY = playerVelY  # player's velocity along Y, default same as playerFlapped
     self.playerMaxVelY = playerMaxVelY  # max vel along Y, max descend speed
@@ -153,6 +157,48 @@ def main():
     crashInfo = mainGame(movementInfo)
     showGameOverScreen(crashInfo)
 
+def showAI_info(i,alive,total_population, max_score_over_gen, n_generations):
+  black = (0,0,0)
+  myFont = pygame.font.SysFont("Times New Roman", 18)
+
+  randNumLabel = myFont.render("Score: ", 1, black)
+  ### pass a string to myFont.render
+  diceDisplay = myFont.render(str(i), 1, black)
+
+  SCREEN.blit(randNumLabel, (10, 10))
+  SCREEN.blit(diceDisplay, (60, 10))
+
+  randNumLabel = myFont.render("Alive: ", 1, black)
+  ### pass a string to myFont.render
+  diceDisplay = myFont.render(str(alive), 1, black)
+
+  SCREEN.blit(randNumLabel, (10, 40))
+  SCREEN.blit(diceDisplay, (60, 40))
+
+  randNumLabel = myFont.render("/", 1, black)
+  diceDisplay = myFont.render(str(total_population), 1, black)
+
+  SCREEN.blit(randNumLabel, (80, 40))
+  SCREEN.blit(diceDisplay, (100, 40))
+
+  randNumLabel = myFont.render("MAX_SCORE: ", 1, black)
+  diceDisplay = myFont.render(str(max_score_over_gen), 1, black)
+
+  SCREEN.blit(randNumLabel, (130, 10))
+  SCREEN.blit(diceDisplay, (250, 10))
+
+  randNumLabel = myFont.render("Generacion: ", 1, black)
+  diceDisplay = myFont.render(str(n_generations), 1, black)
+
+  SCREEN.blit(randNumLabel, (10,70))
+  SCREEN.blit(diceDisplay, (100, 70))
+
+
+
+  return
+
+
+
 
 def showWelcomeAnimation():
   """Shows welcome screen animation of flappy bird"""
@@ -208,6 +254,8 @@ def showWelcomeAnimation():
 
 
 def mainGame(movementInfo):
+  global max_score_over_gen
+  global n_generations
   score = playerIndex = loopIter = 0
   playerIndexGen = movementInfo['playerIndexGen']
   playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
@@ -247,10 +295,10 @@ def mainGame(movementInfo):
   players = []
 
 
-  for i in range(1000):
+  for i in range(50):
     players.append(
       Player(playerx,playery,playerIndex,playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr, playerFlapAcc,
-             playerFlapped, 0))
+             playerFlapped, 0,0))
   i = 0
   crash_list = [False]*len(players)
 
@@ -280,20 +328,27 @@ def mainGame(movementInfo):
 
 
     # check for crash here
-
     for j in range(len(crash_list)):
       if not crash_list[j]:
         crash_list[j] = checkCrash({'x': players[j].playerx, 'y': players[j].playery, 'index': players[j].playerIndex},
                            upperPipes, lowerPipes)[0]
 
+    alive = len([k for k, x in enumerate(crash_list) if x == False])
+    total_population = len(crash_list)
+
     if all(crash_list):
-      max_x = 0
+      max_score = 0
       max_score_index = 0
 
       for index,player in enumerate(players):
-        if player.playerx > max_x:
-          max_x = player.playerx
+        if player.playerScore_i > max_score:
+          max_score = player.playerScore_i
           max_score_index = index
+
+      n_generations +=1
+      mainGame(movementInfo)
+
+
 
       return {
         'y': players[max_score_index].playery,
@@ -311,6 +366,7 @@ def mainGame(movementInfo):
       if crash_list[j]:
         continue
       playerMidPos = player.playerx + IMAGES['player'][0].get_width() / 2
+      player.playerScore_i = i
       for pipe in upperPipes:
         pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
         if pipeMidPos <= playerMidPos < pipeMidPos + 4:
@@ -350,6 +406,7 @@ def mainGame(movementInfo):
         continue
       player.playerHeight = IMAGES['player'][player.playerIndex].get_height()
       player.playery += min(player.playerVelY, BASEY - player.playery - player.playerHeight)
+      player.playery = max(0,player.playery)
 
     # move pipes to left
     for uPipe, lPipe in zip(upperPipes, lowerPipes):
@@ -384,8 +441,9 @@ def mainGame(movementInfo):
         best_player_index = j
         max_score = player.playerScore
 
+    max_score_over_gen = max(i, max_score_over_gen)
     showScore(players[best_player_index].playerScore)
-
+    showAI_info(i,alive,total_population,max_score_over_gen, n_generations)
     # Player rotation has a threshold
     for j,player in enumerate(players):
       if crash_list[j]:

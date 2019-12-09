@@ -4,6 +4,10 @@ import sys
 import numpy as np
 
 import pygame
+
+#from AI_models import GeneticAi
+from AI_models import GeneticAi_torch
+
 from pygame.locals import *
 
 FPS = 30
@@ -11,21 +15,30 @@ SCREENWIDTH = 288
 SCREENHEIGHT = 512
 
 max_score_over_gen = 0
+best_model_over_gen = None
+
 n_generations = 0
+N_POPULATION = 50
 
 PIPEGAPSIZE = 100  # gap between upper and lower part of pipe
 BASEY = SCREENHEIGHT * 0.79
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
+playerWeigths = GeneticAi_torch.initialize(N_POPULATION,2)
+playerLast3Scores = []
+for i in range(N_POPULATION):
+  playerLast3Scores.append(np.zeros((1,3)))
 
 # Object player to create multples instances
 class Player:
   def __init__(self, playerx, playery, playerIndex, playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr,
-               playerFlapAcc, playerFlapped, playerScore, playerScore_i):
+               playerFlapAcc, playerFlapped, playerScore, playerScore_i, playerWeigths, playerLast3Scores):
     self.playerx = playerx
     self.playery = playery
     self.playerScore_i = playerScore_i
+    self.playerLast3Scores = playerLast3Scores
+    self.meanScore_last3 = np.sum(playerLast3Scores)/3
     self.playerIndex = playerIndex
     self.playerVelY = playerVelY  # player's velocity along Y, default same as playerFlapped
     self.playerMaxVelY = playerMaxVelY  # max vel along Y, max descend speed
@@ -37,6 +50,7 @@ class Player:
     self.playerFlapAcc = playerFlapAcc  # players speed on flapping
     self.playerFlapped = playerFlapped  # True when player flaps
     self.playerScore = playerScore
+    self.playerWeights = playerWeigths
 
 
 # list of all possible players (tuple of 3 positions of flap)
@@ -193,8 +207,6 @@ def showAI_info(i,alive,total_population, max_score_over_gen, n_generations):
   SCREEN.blit(randNumLabel, (10,70))
   SCREEN.blit(diceDisplay, (100, 70))
 
-
-
   return
 
 
@@ -256,6 +268,10 @@ def showWelcomeAnimation():
 def mainGame(movementInfo):
   global max_score_over_gen
   global n_generations
+  global playerWeigths
+  global best_model_over_gen
+  global playerLast3Scores
+
   score = playerIndex = loopIter = 0
   playerIndexGen = movementInfo['playerIndexGen']
   playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
@@ -292,13 +308,14 @@ def mainGame(movementInfo):
   playerFlapAcc = -9  # players speed on flapping
   playerFlapped = False  # True when player flaps
 
+
   players = []
 
 
-  for i in range(50):
+  for i in range(N_POPULATION):
     players.append(
       Player(playerx,playery,playerIndex,playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr, playerFlapAcc,
-             playerFlapped, 0,0))
+             playerFlapped, 0,0,playerWeigths[i], playerLast3Scores[i]))
   i = 0
   crash_list = [False]*len(players)
 
@@ -315,12 +332,26 @@ def mainGame(movementInfo):
             playerFlapped = True
             SOUNDS['wing'].play()
     elif i%8 == 0:
-      choices = np.random.choice([0, 1], size=(len(players),))
-      for id_player,choice in enumerate(choices):
-        if choice == 1 and playery > -2 * IMAGES['player'][0].get_height():
-          players[id_player].playerVelY = players[id_player].playerFlapAcc
-          players[id_player].playerFlapped = True
-          SOUNDS['wing'].play()
+      #choices = np.random.choice([0, 1], size=(len(players),))
+      for id_player in range(N_POPULATION):
+        if not crash_list[id_player]:
+          pipeMidPos = upperPipes[0]['x'] + IMAGES['pipe'][0].get_width() / 2
+          pipeMidPos_y = upperPipes[0]['y'] + SCREENHEIGHT
+
+          pipeVelX_env = pipeVelX/(-4)
+          pipeMidPos_env = pipeMidPos/482
+          player_y_env = player.playery/380.48 +1
+          dist_x_env = abs(player.playerx - upperPipes[0]['x'])/400
+
+          #env = [pipeVelX_env, pipeMidPos_env, player_y_env,dist_x_env]
+          env = [player_y_env, pipeMidPos_y/SCREENHEIGHT]
+
+          choice = GeneticAi_torch.predict(playerWeigths[id_player], env)
+
+          if choice == 1 and playery > -2 * IMAGES['player'][0].get_height():
+            players[id_player].playerVelY = players[id_player].playerFlapAcc
+            players[id_player].playerFlapped = True
+            SOUNDS['wing'].play()
 
     else:
       pass
@@ -332,6 +363,10 @@ def mainGame(movementInfo):
       if not crash_list[j]:
         crash_list[j] = checkCrash({'x': players[j].playerx, 'y': players[j].playery, 'index': players[j].playerIndex},
                            upperPipes, lowerPipes)[0]
+        if crash_list[j] == True:
+          players[j].playerLast3Scores = [np.concatenate(([players[j].playerScore_i],players[j].playerLast3Scores[0][0:2]))]
+          players[j].meanScore_last3 = np.sum(players[j].playerLast3Scores)/3
+          #players[j].playerScore_i = player.playerScore_i - 100
 
     alive = len([k for k, x in enumerate(crash_list) if x == False])
     total_population = len(crash_list)
@@ -340,15 +375,24 @@ def mainGame(movementInfo):
       max_score = 0
       max_score_index = 0
 
-      for index,player in enumerate(players):
-        if player.playerScore_i > max_score:
-          max_score = player.playerScore_i
-          max_score_index = index
+      players.sort(key=lambda x: x.meanScore_last3, reverse=True)
+      max_score = players[0].playerScore_i
+      playerWeigths = []
+      playerLast3Scores = []
 
+      for index,player in enumerate(players):
+        playerWeigths.append(player.playerWeights)
+        playerLast3Scores.append(player.playerLast3Scores)
+        if index == 0:
+          print(player.meanScore_last3)
+          pass
+
+
+      playerWeigths = GeneticAi_torch.train(playerWeigths)
+      if best_model_over_gen is not None:
+        playerWeigths[-3] = best_model_over_gen
       n_generations +=1
       mainGame(movementInfo)
-
-
 
       return {
         'y': players[max_score_index].playery,
@@ -366,11 +410,12 @@ def mainGame(movementInfo):
       if crash_list[j]:
         continue
       playerMidPos = player.playerx + IMAGES['player'][0].get_width() / 2
-      player.playerScore_i = i
+      player.playerScore_i = player.playerScore_i  + 1
       for pipe in upperPipes:
         pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
         if pipeMidPos <= playerMidPos < pipeMidPos + 4:
           player.playerScore += 1
+          player.playerScore_i = player.playerScore_i  + 100
           SOUNDS['point'].play()
 
     # playerIndex basex change
@@ -437,11 +482,16 @@ def mainGame(movementInfo):
     best_player_index = 0
     max_score = 0
     for j,player in enumerate(players):
+      if player.playerScore_i > max_score_over_gen:
+        max_score_over_gen = player.playerScore_i
+        best_model_over_gen = player.playerWeights
+
       if player.playerScore > max_score:
         best_player_index = j
         max_score = player.playerScore
 
-    max_score_over_gen = max(i, max_score_over_gen)
+
+
     showScore(players[best_player_index].playerScore)
     showAI_info(i,alive,total_population,max_score_over_gen, n_generations)
     # Player rotation has a threshold
@@ -578,6 +628,7 @@ def checkCrash(player, upperPipes, lowerPipes):
 
     for uPipe, lPipe in zip(upperPipes, lowerPipes):
       # upper and lower pipe rects
+
       uPipeRect = pygame.Rect(uPipe['x'], uPipe['y'], pipeW, pipeH)
       lPipeRect = pygame.Rect(lPipe['x'], lPipe['y'], pipeW, pipeH)
 

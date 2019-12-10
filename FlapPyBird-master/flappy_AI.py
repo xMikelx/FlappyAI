@@ -397,6 +397,7 @@ def mainGame(movementInfo):
         playerLast3Scores.append(player.playerLast3Scores)
         if index == 0:
           print(player.meanScore_last3)
+          print()
           pass
 
 

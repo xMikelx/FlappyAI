@@ -331,7 +331,7 @@ def mainGame(movementInfo):
             playerVelY = playerFlapAcc
             playerFlapped = True
             SOUNDS['wing'].play()
-    elif i%8 == 0:
+    elif i%4 == 0:
       #choices = np.random.choice([0, 1], size=(len(players),))
       for id_player in range(N_POPULATION):
         if not crash_list[id_player]:
@@ -340,11 +340,11 @@ def mainGame(movementInfo):
 
           pipeVelX_env = pipeVelX/(-4)
           pipeMidPos_env = pipeMidPos/482
-          player_y_env = player.playery/380.48 +1
+          player_y_env = player.playery/380.48
           dist_x_env = abs(player.playerx - upperPipes[0]['x'])/400
 
           #env = [pipeVelX_env, pipeMidPos_env, player_y_env,dist_x_env]
-          env = [player_y_env, pipeMidPos_y/SCREENHEIGHT]
+          env = [-player_y_env, pipeMidPos_y/SCREENHEIGHT]
 
           choice = GeneticAi_torch.predict(playerWeigths[id_player], env)
 
@@ -363,6 +363,7 @@ def mainGame(movementInfo):
       if not crash_list[j]:
         crash_list[j] = checkCrash({'x': players[j].playerx, 'y': players[j].playery, 'index': players[j].playerIndex},
                            upperPipes, lowerPipes)[0]
+
         if crash_list[j] == True:
           players[j].playerLast3Scores = [np.concatenate(([players[j].playerScore_i],players[j].playerLast3Scores[0][0:2]))]
           players[j].meanScore_last3 = np.sum(players[j].playerLast3Scores)/3
@@ -375,7 +376,7 @@ def mainGame(movementInfo):
       max_score = 0
       max_score_index = 0
 
-      players.sort(key=lambda x: x.meanScore_last3, reverse=True)
+      players.sort(key=lambda x: x.playerScore_i, reverse=True)
       max_score = players[0].playerScore_i
       playerWeigths = []
       playerLast3Scores = []
@@ -451,7 +452,9 @@ def mainGame(movementInfo):
         continue
       player.playerHeight = IMAGES['player'][player.playerIndex].get_height()
       player.playery += min(player.playerVelY, BASEY - player.playery - player.playerHeight)
-      player.playery = max(0,player.playery)
+      if player.playery < 0:
+          #player.playery = max(0,player.playery)
+          crash_list[j] = True
 
     # move pipes to left
     for uPipe, lPipe in zip(upperPipes, lowerPipes):

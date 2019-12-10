@@ -135,7 +135,7 @@ def train(chromosomes):
     child1, child2 = crossover(parent1, parent2)
     child1, child2 = mutate(child1, child2)
     new_population = evolution(chromosomes, child1, child2)
-#    new_population = random_evolution(new_population)
+    new_population = random_evolution(new_population)
 
 
     return new_population
@@ -158,14 +158,27 @@ def predict(chromosomes, parameters):
     # -- velx ¨= 4, pip_y ¨= 512, player_heigth = 512, dist = 288
     y = chromosomes.forward(torch.from_numpy(np.array(parameters)).float())
 
-    prob = np.random.rand()
+    prob = np.random.normal(0.5, 0.1, 1)
     print(parameters)
     print(y)
 
-    if prob > y:  # -- We supose al the weigths starts with 0.5 mean
+    if y > 0.5:
         return 1
     else:
         return 0
+
+    '''
+    if y > 0.6:  # -- We supose al the weigths starts with 0.5 mean
+        return 1
+    elif y < 0.4 :
+        return 0
+    else:
+        prob = np.random.rand()
+        if prob  > 0.7:
+            return 1
+        else:
+            return 0
+    '''
 
 if __name__ == "__main__":
     # -- Matrix with the chromosomes of each player sorted

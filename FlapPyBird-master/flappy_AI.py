@@ -6,11 +6,11 @@ import numpy as np
 import pygame
 
 #from AI_models import GeneticAi
-from AI_models import GeneticAi_torch
+from Ai_models import GeneticAi_torch
 
 from pygame.locals import *
 
-FPS = 30
+FPS = 100
 SCREENWIDTH = 288
 SCREENHEIGHT = 512
 
@@ -25,7 +25,7 @@ BASEY = SCREENHEIGHT * 0.79
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
-playerWeigths = GeneticAi_torch.initialize(N_POPULATION,2)
+playerWeigths = GeneticAi_torch.initialize(N_POPULATION,3)
 playerLast3Scores = []
 for i in range(N_POPULATION):
   playerLast3Scores.append(np.zeros((1,3)))
@@ -318,8 +318,11 @@ def mainGame(movementInfo):
              playerFlapped, 0,0,playerWeigths[i], playerLast3Scores[i]))
   i = 0
   crash_list = [False]*len(players)
+  next_pipe = False
 
   while True:
+
+    pygame.event.get()
 
     if i == 0:
       for event in pygame.event.get():
@@ -335,16 +338,25 @@ def mainGame(movementInfo):
       #choices = np.random.choice([0, 1], size=(len(players),))
       for id_player in range(N_POPULATION):
         if not crash_list[id_player]:
-          pipeMidPos = upperPipes[0]['x'] + IMAGES['pipe'][0].get_width() / 2
-          pipeMidPos_y = upperPipes[0]['y'] + SCREENHEIGHT
 
-          pipeVelX_env = pipeVelX/(-4)
-          pipeMidPos_env = pipeMidPos/482
-          player_y_env = player.playery/380.48
-          dist_x_env = abs(player.playerx - upperPipes[0]['x'])/400
+          if next_pipe: #THE PIPE POS DOESN't UPDATE UNTIL IT GOES OFF THE SCREEN
+            pipeMidPos_y = upperPipes[1]['y'] + SCREENHEIGHT
+            dist_x_env = abs(players[id_player].playerx - upperPipes[1]['x']) / 400
+          else:
+            pipeMidPos_y = upperPipes[0]['y'] + SCREENHEIGHT
+            dist_x_env = abs(players[id_player].playerx - upperPipes[0]['x']) / 400
+
+
+          player_y_env = players[id_player].playery/380.48
+
+
+
+
+
 
           #env = [pipeVelX_env, pipeMidPos_env, player_y_env,dist_x_env]
-          env = [-player_y_env, pipeMidPos_y/SCREENHEIGHT]
+          #env = [player_y_env, pipeMidPos_y/SCREENHEIGHT]
+          env = [player_y_env, pipeMidPos_y / SCREENHEIGHT,dist_x_env]
 
           choice = GeneticAi_torch.predict(playerWeigths[id_player], env)
 
@@ -355,7 +367,6 @@ def mainGame(movementInfo):
 
     else:
       pass
-
 
 
     # check for crash here
@@ -416,7 +427,9 @@ def mainGame(movementInfo):
         pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
         if pipeMidPos <= playerMidPos < pipeMidPos + 4:
           player.playerScore += 1
-          player.playerScore_i = player.playerScore_i  + 100
+          player.playerScore_i = player.playerScore_i + 100
+          next_pipe = True
+          print("NEXT PIPE " + str(next_pipe) + "!!!!!!!!!")
           SOUNDS['point'].play()
 
     # playerIndex basex change
@@ -452,7 +465,7 @@ def mainGame(movementInfo):
         continue
       player.playerHeight = IMAGES['player'][player.playerIndex].get_height()
       player.playery += min(player.playerVelY, BASEY - player.playery - player.playerHeight)
-      if player.playery < 0:
+      if player.playery <= 0.0:
           #player.playery = max(0,player.playery)
           crash_list[j] = True
 
@@ -471,6 +484,7 @@ def mainGame(movementInfo):
     if upperPipes[0]['x'] < -IMAGES['pipe'][0].get_width():
       upperPipes.pop(0)
       lowerPipes.pop(0)
+      next_pipe = False
 
     # draw sprites
     SCREEN.blit(IMAGES['background'], (0, 0))
@@ -510,8 +524,8 @@ def mainGame(movementInfo):
 
     pygame.display.update()
     i+=1
+    #FPSCLOCK.tick(5)
     FPSCLOCK.tick(FPS)
-
 
 def showGameOverScreen(crashInfo):
   """crashes the player down ans shows gameover image"""

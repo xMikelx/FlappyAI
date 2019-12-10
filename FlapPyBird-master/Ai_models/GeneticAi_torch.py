@@ -18,7 +18,7 @@ class Net(nn.Module):
 
     def forward(self, x):
         x = self.fc1(x)
-        x = F.relu(x)
+        x = F.sigmoid(x)
         # -----
         x = self.fc2(x)
         x = F.sigmoid(x)
@@ -33,8 +33,8 @@ def select(chromosomes):
 
 # -- Gets 2 childs by mixing parameters from each parent
 def crossover(parent1, parent2):
-    child1 = Net(2,1)
-    child2 = Net(2,1)
+    child1 = Net(3,1)
+    child2 = Net(3,1)
 
     weights1 = parent1.fc1.weight.data
     weights2 = parent2.fc1.weight.data
@@ -123,11 +123,11 @@ def evolution(chromosomes, child1, child2):
     return chromosomes
 
 
-def random_evolution(chromosomes):
+def random_evolution(chromosomes,prob_random):
     for i in range(2,len(chromosomes) - 2):
         prob = np.random.rand()
-        if prob > 0.5:
-          chromosomes[i] = Net(2,1)
+        if prob > (1-prob_random):
+          chromosomes[i] = Net(3,1)
     return chromosomes
 
 def train(chromosomes):
@@ -135,7 +135,10 @@ def train(chromosomes):
     child1, child2 = crossover(parent1, parent2)
     child1, child2 = mutate(child1, child2)
     new_population = evolution(chromosomes, child1, child2)
-    new_population = random_evolution(new_population)
+    new_population = random_evolution(new_population,0.2)
+
+    #new_population = chromosomes
+    #new_population = random_evolution_test(new_population,1)
 
 
     return new_population
@@ -155,12 +158,13 @@ def sigmoid(X):
 
 def predict(chromosomes, parameters):
 
+
     # -- velx ¨= 4, pip_y ¨= 512, player_heigth = 512, dist = 288
     y = chromosomes.forward(torch.from_numpy(np.array(parameters)).float())
 
     prob = np.random.normal(0.5, 0.1, 1)
-    print(parameters)
-    print(y)
+    #print(parameters)
+    #print(y)
 
     if y > 0.5:
         return 1

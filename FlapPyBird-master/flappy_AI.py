@@ -25,13 +25,14 @@ BASEY = SCREENHEIGHT * 0.79
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
-playerWeigths = GeneticAi_torch.initialize(N_POPULATION,3)
+playerWeigths = GeneticAi_torch.initialize(N_POPULATION,2)
 playerLast3Scores = []
 for i in range(N_POPULATION):
   playerLast3Scores.append(np.zeros((1,3)))
 
 # Object player to create multples instances
 class Player:
+
   def __init__(self, playerx, playery, playerIndex, playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr,
                playerFlapAcc, playerFlapped, playerScore, playerScore_i, playerWeigths, playerLast3Scores):
     self.playerx = playerx
@@ -319,10 +320,25 @@ def mainGame(movementInfo):
   i = 0
   crash_list = [False]*len(players)
   next_pipe = False
+  next_pipe_count = 0
+
+  change_pipe = False
 
   while True:
 
     pygame.event.get()
+
+
+    if next_pipe:
+      next_pipe_count += 1
+      if next_pipe_count > 4:
+        change_pipe = True
+
+    else:
+      next_pipe_count -= 1
+      if next_pipe_count < -4:
+        change_pipe = False
+
 
     if i == 0:
       for event in pygame.event.get():
@@ -339,24 +355,20 @@ def mainGame(movementInfo):
       for id_player in range(N_POPULATION):
         if not crash_list[id_player]:
 
-          if next_pipe: #THE PIPE POS DOESN't UPDATE UNTIL IT GOES OFF THE SCREEN
-            pipeMidPos_y = upperPipes[1]['y'] + SCREENHEIGHT
-            dist_x_env = abs(players[id_player].playerx - upperPipes[1]['x']) / 400
+          if change_pipe: #THE PIPE POS DOESN't UPDATE UNTIL IT GOES OFF THE SCREEN
+            pipeMidPos_y = (lowerPipes[1]['y'] + 50)/SCREENHEIGHT
+            #dist_x_env = abs(players[id_player].playerx - upperPipes[1]['x']) / 400
           else:
-            pipeMidPos_y = upperPipes[0]['y'] + SCREENHEIGHT
+            pipeMidPos_y = (lowerPipes[0]['y'] + 50) / SCREENHEIGHT
             dist_x_env = abs(players[id_player].playerx - upperPipes[0]['x']) / 400
 
 
-          player_y_env = players[id_player].playery/380.48
-
-
-
-
+          player_y_env = players[id_player].playery/380
 
 
           #env = [pipeVelX_env, pipeMidPos_env, player_y_env,dist_x_env]
-          #env = [player_y_env, pipeMidPos_y/SCREENHEIGHT]
-          env = [player_y_env, pipeMidPos_y / SCREENHEIGHT,dist_x_env]
+          env = [player_y_env, pipeMidPos_y]
+          #env = [player_y_env, pipeMidPos_y,dist_x_env]
 
           choice = GeneticAi_torch.predict(playerWeigths[id_player], env)
 
@@ -388,7 +400,9 @@ def mainGame(movementInfo):
       max_score_index = 0
 
       players.sort(key=lambda x: x.playerScore_i, reverse=True)
-      max_score = players[0].playerScore_i
+      #players.sort(key=lambda x: x.meanScore_last3, reverse=True)
+
+      max_score = players[0].meanScore_last3
       playerWeigths = []
       playerLast3Scores = []
 
@@ -396,14 +410,13 @@ def mainGame(movementInfo):
         playerWeigths.append(player.playerWeights)
         playerLast3Scores.append(player.playerLast3Scores)
         if index == 0:
-          print(player.meanScore_last3)
+          print(player.playerScore_i)
           print()
           pass
 
-
       playerWeigths = GeneticAi_torch.train(playerWeigths)
-      if best_model_over_gen is not None:
-        playerWeigths[-3] = best_model_over_gen
+      #if best_model_over_gen is not None:
+      #  playerWeigths[-3] = best_model_over_gen
       n_generations +=1
       mainGame(movementInfo)
 
@@ -430,6 +443,7 @@ def mainGame(movementInfo):
           player.playerScore += 1
           player.playerScore_i = player.playerScore_i + 100
           next_pipe = True
+          next_pipe_count  = 0
           print("NEXT PIPE " + str(next_pipe) + "!!!!!!!!!")
           SOUNDS['point'].play()
 
@@ -476,16 +490,19 @@ def mainGame(movementInfo):
       lPipe['x'] += pipeVelX
 
     # add new pipe when first pipe is about to touch left of screen
+
     if 0 < upperPipes[0]['x'] < 5:
       newPipe = getRandomPipe()
       upperPipes.append(newPipe[0])
       lowerPipes.append(newPipe[1])
+
 
     # remove first pipe if its out of the screen
     if upperPipes[0]['x'] < -IMAGES['pipe'][0].get_width():
       upperPipes.pop(0)
       lowerPipes.pop(0)
       next_pipe = False
+      next_pipe_count = 0
 
     # draw sprites
     SCREEN.blit(IMAGES['background'], (0, 0))

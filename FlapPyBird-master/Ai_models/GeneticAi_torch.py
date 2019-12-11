@@ -33,8 +33,8 @@ def select(chromosomes):
 
 # -- Gets 2 childs by mixing parameters from each parent
 def crossover(parent1, parent2):
-    child1 = Net(3,1)
-    child2 = Net(3,1)
+    child1 = Net(2,1)
+    child2 = Net(2,1)
 
     weights1 = parent1.fc1.weight.data
     weights2 = parent2.fc1.weight.data
@@ -116,30 +116,80 @@ def mutate(child1, child2):
 
     return child1, child2
 
-
 def evolution(chromosomes, child1, child2):
     chromosomes[-1] = child1
     chromosomes[-2] = child2
     return chromosomes
 
 
-def random_evolution(chromosomes,prob_random):
-    for i in range(2,len(chromosomes) - 2):
-        prob = np.random.rand()
-        if prob > (1-prob_random):
-          chromosomes[i] = Net(3,1)
-    return chromosomes
+def random_evolution(N_POPULATION,new_population,prob_random):
+    n_random = int(prob_random*N_POPULATION)
 
-def train(chromosomes):
+    for i in range(n_random):
+        new_population.append(Net(2,1))
+    return new_population
+
+
+def elitism(chromosomes,percent):
+    new_population = []
+    n_intact = int(percent*len(chromosomes))
+    for i in range(n_intact):
+        new_population.append(chromosomes[i])
+
+    return new_population
+
+def child_generator(parent1, parent2, new_population, n_childs):
+
+    prob_mutate = 0.1
+
+    for i in range(n_childs):
+      child1 = Net(2,1)
+
+      # WE UPDATE FIRST LAYER
+      weights1 = parent1.fc1.weight.data
+      weights2 = parent2.fc1.weight.data
+
+      row,col = weights1.shape
+
+      for j in range(row):
+          for k in range(col):
+            if np.random.rand() < 0.5:
+                weights1[j][k] = weights2[j,k]
+            if np.random.rand() <  0.1: #RANDOM MUTATION
+                weights1[j][k] += np.random.randn() * 0.5 * 2 - 0.5
+
+      child1.fc1.weight.data = weights1
+
+      # WE UPDATE SECOND LAYER
+      weights1 = parent1.fc2.weight.data
+      weights2 = parent2.fc2.weight.data
+
+      row,col = weights1.shape
+
+      for j in range(row):
+          for k in range(col):
+            if np.random.rand() < 0.5:
+                weights1[j][k] = weights2[j,k]
+            if np.random.rand() <  0.1: #RANDOM MUTATION
+                weights1[j][k] += np.random.randn() * 0.5 * 2 - 0.5
+
+
+      child1.fc2.weight.data = weights1
+
+      new_population.append(child1)
+
+    return new_population
+
+
+def train(chromosomes): #chromosomes are the models sorted by points
+    N_POPULAION = len(chromosomes)
+    new_population = elitism(chromosomes,0.2)
+    new_population = random_evolution(N_POPULAION,new_population,0.1)
+
+    n_childs = N_POPULAION - len(new_population)
+
     parent1, parent2 = select(chromosomes)
-    child1, child2 = crossover(parent1, parent2)
-    child1, child2 = mutate(child1, child2)
-    new_population = evolution(chromosomes, child1, child2)
-    new_population = random_evolution(new_population,0.2)
-
-    #new_population = chromosomes
-    #new_population = random_evolution_test(new_population,1)
-
+    new_population = child_generator(parent1, parent2, new_population, n_childs)
 
     return new_population
 

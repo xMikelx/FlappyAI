@@ -540,6 +540,7 @@ def mainGame(movementInfo, train_info):
         env = get_env_genetic({'x': player.playerx, 'y': player.playery, 'index': player.playerIndex}, upperPipes,
                               lowerPipes)
         output_queue.put((env, player.playerReward, False, id_player))  # TODO: Change this to be more general.
+        print()
 
 
     pygame.display.update()

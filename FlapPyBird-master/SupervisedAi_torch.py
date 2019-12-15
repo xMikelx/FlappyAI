@@ -38,7 +38,7 @@ def discount_rewards(r, gamma):
     disc_r = np.zeros_like(r, dtype=float)
     running_sum = 0
     for t in reversed(range(0, len(r))):
-        if r[t] == -1:  # If the reward is -1...
+        if r[t] == -100: # If the reward is -1...
             running_sum = 0  # ...then reset sum, since it's a game boundary
         running_sum = running_sum * gamma + r[t]
         disc_r[t] = running_sum
@@ -106,8 +106,19 @@ def main():
 
     playerModel = initialize(20)  # 1 player 12 inputs
 
-
     opt = optim.Adam(playerModel.parameters(), lr=learning_rate)
+
+    state = {
+        'state_dict': playerModel.state_dict(),
+        'optimizer': opt.state_dict(),
+    }
+
+    #torch.load(state, 'model/init-model.pt')
+
+    checkpoint = torch.load('model/init-model.pt')
+    playerModel.load_state_dict(checkpoint['state_dict'])
+    opt.load_state_dict(checkpoint['optimizer'])
+
 
     input_queue = mp.Queue()
     output_queue = mp.Queue()
@@ -118,6 +129,9 @@ def main():
     # Start game on a separate process:
     p = mp.Process(target=flappy_AI_Supervises.main, args=(input_queue, output_queue))
     p.start()
+
+
+
 
     for generation in range(n_generations):
         batch_log_prob = []

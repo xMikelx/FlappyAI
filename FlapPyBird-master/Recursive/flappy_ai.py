@@ -4,45 +4,48 @@ import sys
 import numpy as np
 
 import pygame
-
-#from AI_models import GeneticAi
-#from Ai_models import SupervisedAi_torch
-
-from pygame.locals import *
-from torch.distributions import Bernoulli
 import torch
 
-# If you want to disable the display:
-'''
-import os
-os.environ["SDL_VIDEODRIVER"] = "dummy"
+#from AI_models import GeneticAi
+from Ai_models import GeneticAi_torch
 
-import pygame.display
-pygame.display.init()
-screen = pygame.display.set_mode((1,1))
-'''
+from pygame.locals import *
 
-FPS = 200
+print(sys.getrecursionlimit)
+
+sys.setrecursionlimit(100000000)
+
+
+FPS = 100
 SCREENWIDTH = 288
 SCREENHEIGHT = 512
 
 max_score_over_gen = 0
 best_model_over_gen = None
 
+n_generations = 0
+N_POPULATION = 50
 
 PIPEGAPSIZE = 100  # gap between upper and lower part of pipe
 BASEY = SCREENHEIGHT * 0.79
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
+playerWeigths = GeneticAi_torch.initialize(N_POPULATION,2)
+playerLast3Scores = []
+for i in range(N_POPULATION):
+  playerLast3Scores.append(np.zeros((1,3)))
 
 # Object player to create multples instances
 class Player:
 
   def __init__(self, playerx, playery, playerIndex, playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr,
-               playerFlapAcc, playerFlapped, playerScore, playerReward):
+               playerFlapAcc, playerFlapped, playerScore, playerScore_i, playerWeigths, playerLast3Scores):
     self.playerx = playerx
     self.playery = playery
+    self.playerScore_i = playerScore_i
+    self.playerLast3Scores = playerLast3Scores
+    self.meanScore_last3 = np.sum(playerLast3Scores)/3
     self.playerIndex = playerIndex
     self.playerVelY = playerVelY  # player's velocity along Y, default same as playerFlapped
     self.playerMaxVelY = playerMaxVelY  # max vel along Y, max descend speed
@@ -54,7 +57,7 @@ class Player:
     self.playerFlapAcc = playerFlapAcc  # players speed on flapping
     self.playerFlapped = playerFlapped  # True when player flaps
     self.playerScore = playerScore
-    self.playerReward = playerReward
+    self.playerWeights = playerWeigths
 
 
 # list of all possible players (tuple of 3 positions of flap)
@@ -97,9 +100,8 @@ except NameError:
   xrange = range
 
 
-def load_game():
-  global SCREEN, FPSCLOCK, FPS
-
+def main():
+  global SCREEN, FPSCLOCK
   pygame.init()
   FPSCLOCK = pygame.time.Clock()
   SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT))
@@ -138,64 +140,45 @@ def load_game():
   SOUNDS['swoosh'] = pygame.mixer.Sound('assets/audio/swoosh' + soundExt)
   SOUNDS['wing'] = pygame.mixer.Sound('assets/audio/wing' + soundExt)
 
-
-  # select random background sprites
-  randBg = random.randint(0, len(BACKGROUNDS_LIST) - 1)
-  IMAGES['background'] = pygame.image.load(BACKGROUNDS_LIST[randBg]).convert()
-
-  # select random player sprites
-  randPlayer = random.randint(0, len(PLAYERS_LIST) - 1)
-  IMAGES['player'] = (
-    pygame.image.load(PLAYERS_LIST[randPlayer][0]).convert_alpha(),
-    pygame.image.load(PLAYERS_LIST[randPlayer][1]).convert_alpha(),
-    pygame.image.load(PLAYERS_LIST[randPlayer][2]).convert_alpha(),
-  )
-
-  # select random pipe sprites
-  pipeindex = random.randint(0, len(PIPES_LIST) - 1)
-  IMAGES['pipe'] = (
-    pygame.transform.flip(
-      pygame.image.load(PIPES_LIST[pipeindex]).convert_alpha(), False, True),
-    pygame.image.load(PIPES_LIST[pipeindex]).convert_alpha(),
-  )
-
-  # hismask for pipes
-  HITMASKS['pipe'] = (
-    getHitmask(IMAGES['pipe'][0]),
-    getHitmask(IMAGES['pipe'][1]),
-  )
-
-  # hitmask for player
-  HITMASKS['player'] = (
-    getHitmask(IMAGES['player'][0]),
-    getHitmask(IMAGES['player'][1]),
-    getHitmask(IMAGES['player'][2]),
-  )
-
-  return
-
-
-def main(in_q, out_q):
-  global input_queue, output_queue
-  playerIndexGen= cycle([0, 1, 2, 1])
-
-  load_game()
-  # This is done to make the queues accessible to child functions:
-
-  input_queue, output_queue = in_q, out_q
-
   while True:
+    # select random background sprites
+    randBg = random.randint(0, len(BACKGROUNDS_LIST) - 1)
+    IMAGES['background'] = pygame.image.load(BACKGROUNDS_LIST[randBg]).convert()
 
-    movementInfo = {"playerIndexGen" :  playerIndexGen , "basex": 0, "playery": 244}
-    #movementInfo = showWelcomeAnimation()
+    # select random player sprites
+    randPlayer = random.randint(0, len(PLAYERS_LIST) - 1)
+    IMAGES['player'] = (
+      pygame.image.load(PLAYERS_LIST[randPlayer][0]).convert_alpha(),
+      pygame.image.load(PLAYERS_LIST[randPlayer][1]).convert_alpha(),
+      pygame.image.load(PLAYERS_LIST[randPlayer][2]).convert_alpha(),
+    )
 
-    train_info = input_queue.get()
-    mainGame(movementInfo,train_info)
+    # select random pipe sprites
+    pipeindex = random.randint(0, len(PIPES_LIST) - 1)
+    IMAGES['pipe'] = (
+      pygame.transform.flip(
+        pygame.image.load(PIPES_LIST[pipeindex]).convert_alpha(), False, True),
+      pygame.image.load(PIPES_LIST[pipeindex]).convert_alpha(),
+    )
 
-    #showGameOverScreen(crashInfo)
-  return
+    # hismask for pipes
+    HITMASKS['pipe'] = (
+      getHitmask(IMAGES['pipe'][0]),
+      getHitmask(IMAGES['pipe'][1]),
+    )
 
-def showAI_info(i,n_generations, max_score_over_gen, n_games,alive):
+    # hitmask for player
+    HITMASKS['player'] = (
+      getHitmask(IMAGES['player'][0]),
+      getHitmask(IMAGES['player'][1]),
+      getHitmask(IMAGES['player'][2]),
+    )
+
+    movementInfo = showWelcomeAnimation()
+    crashInfo = mainGame(movementInfo)
+    showGameOverScreen(crashInfo)
+
+def showAI_info(i,alive,total_population, max_score_over_gen, n_generations):
   black = (0,0,0)
   myFont = pygame.font.SysFont("Times New Roman", 18)
 
@@ -206,13 +189,18 @@ def showAI_info(i,n_generations, max_score_over_gen, n_games,alive):
   SCREEN.blit(randNumLabel, (10, 10))
   SCREEN.blit(diceDisplay, (60, 10))
 
-  randNumLabel = myFont.render("Generacion: ", 1, black)
+  randNumLabel = myFont.render("Alive: ", 1, black)
   ### pass a string to myFont.render
-  diceDisplay = myFont.render(str(n_generations), 1, black)
+  diceDisplay = myFont.render(str(alive), 1, black)
 
   SCREEN.blit(randNumLabel, (10, 40))
-  SCREEN.blit(diceDisplay, (100, 40))
+  SCREEN.blit(diceDisplay, (60, 40))
 
+  randNumLabel = myFont.render("/", 1, black)
+  diceDisplay = myFont.render(str(total_population), 1, black)
+
+  SCREEN.blit(randNumLabel, (80, 40))
+  SCREEN.blit(diceDisplay, (100, 40))
 
   randNumLabel = myFont.render("MAX_SCORE: ", 1, black)
   diceDisplay = myFont.render(str(max_score_over_gen), 1, black)
@@ -220,19 +208,16 @@ def showAI_info(i,n_generations, max_score_over_gen, n_games,alive):
   SCREEN.blit(randNumLabel, (130, 10))
   SCREEN.blit(diceDisplay, (250, 10))
 
-  randNumLabel = myFont.render("ALIVE: ", 1, black)
-  diceDisplay = myFont.render(str(alive), 1, black)
-
-  SCREEN.blit(randNumLabel, (180, 40))
-  SCREEN.blit(diceDisplay, (250, 40))
-
-  randNumLabel = myFont.render("Game: ", 1, black)
-  diceDisplay = myFont.render(str(n_games), 1, black)
+  randNumLabel = myFont.render("Generacion: ", 1, black)
+  diceDisplay = myFont.render(str(n_generations), 1, black)
 
   SCREEN.blit(randNumLabel, (10,70))
   SCREEN.blit(diceDisplay, (100, 70))
 
   return
+
+
+
 
 def showWelcomeAnimation():
   """Shows welcome screen animation of flappy bird"""
@@ -256,19 +241,18 @@ def showWelcomeAnimation():
   playerShmVals = {'val': 0, 'dir': 1}
 
   while True:
-    if not input_queue.empty():
-      restart = input_queue.get()
-      if restart:
+    for event in pygame.event.get():
+      if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+        pygame.quit()
+        sys.exit()
+      if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
         # make first flap sound and return values for mainGame
-        output_queue.put(None)
+        SOUNDS['wing'].play()
         return {
           'playery': playery + playerShmVals['val'],
           'basex': basex,
           'playerIndexGen': playerIndexGen,
         }
-      else:
-        pygame.quit()
-        sys.exit()
 
     # adjust playery, playerIndex, basex
     if (loopIter + 1) % 5 == 0:
@@ -286,7 +270,6 @@ def showWelcomeAnimation():
 
     pygame.display.update()
     FPSCLOCK.tick(FPS)
-
 
 def get_env_genetic(player, upperPipes, lowerPipes):
 
@@ -307,47 +290,13 @@ def get_env_genetic(player, upperPipes, lowerPipes):
 
     return torch.from_numpy(np.array(env)).float()
 
-def get_env(player, upperPipes, lowerPipes):
 
-    player['w'] = IMAGES['player'][0].get_width()
-    player['h'] = IMAGES['player'][0].get_height()
-
-    # if player crashes into ground
-    playerRect = pygame.Rect(player['x'], player['y'],
-                               player['w'], player['h'])
-    pipeW = IMAGES['pipe'][0].get_width()
-    pipeH = IMAGES['pipe'][0].get_height()
-
-    if len(lowerPipes) > 2:
-      i_start = 1
-
-    else:
-      i_start = 0
-
-    env = []
-    for i in range(i_start,i_start + 2):
-      uPipeRect1 = pygame.Rect(upperPipes[i]['x'], upperPipes[i]['y'], pipeW, pipeH)
-      lPipeRect1 = pygame.Rect(lowerPipes[i]['x'], lowerPipes[i]['y'], pipeW, pipeH)
-
-      env.append(uPipeRect1)
-      env.append(lPipeRect1)
-
-    env.append(playerRect)
-
-    env = np.array(env).reshape(1,-1)
-    return torch.from_numpy(np.array(env)).float()
-
-
-def mainGame(movementInfo, train_info):
+def mainGame(movementInfo):
   global max_score_over_gen
-  global n_games
-  global playerModel
-  global opt
   global n_generations
-  global generation_logProb
-  global generation_reward
-
-  n_games, n_generations, N_POPULATION = train_info
+  global playerWeigths
+  global best_model_over_gen
+  global playerLast3Scores
 
   score = playerIndex = loopIter = 0
   playerIndexGen = movementInfo['playerIndexGen']
@@ -385,89 +334,173 @@ def mainGame(movementInfo, train_info):
   playerFlapAcc = -9  # players speed on flapping
   playerFlapped = False  # True when player flaps
 
+
   players = []
-  for index in range(N_POPULATION):
-    player = Player(playerx,playery,playerIndex,playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr, playerFlapAcc,
-             playerFlapped, 0,0)
-    players.append(player)
-
-  population_alive = N_POPULATION
-  crash_list = [False]*N_POPULATION
 
 
+  for i in range(N_POPULATION):
+    players.append(
+      Player(playerx,playery,playerIndex,playerVelY, playerMaxVelY, playerMinVelY, playerAccY, playerRot, playerVelRot, playerRotThr, playerFlapAcc,
+             playerFlapped, 0,0,playerWeigths[i], playerLast3Scores[i]))
   i = 0
-  reward = 0
+  crash_list = [False]*len(players)
+  next_pipe = False
+  next_pipe_count = 0
+
+  change_pipe = False
 
   while True:
+
     pygame.event.get()
 
-    for id_player,player in enumerate(players):
-      if not crash_list[id_player]:
-        crash = checkCrash({'x': player.playerx, 'y': player.playery, 'index': player.playerIndex},
-                         upperPipes, lowerPipes)[0]
 
-        choice, index = input_queue.get()
+    if next_pipe:
+      next_pipe_count += 1
+      if next_pipe_count > 4:
+        change_pipe = True
 
-        players[index].playerFlapped = choice
-
-        crash_list[id_player] = crash
-
-        if crash:
-          output_queue.put((env, -100, True, id_player))
+    else:
+      next_pipe_count -= 1
+      if next_pipe_count < -4:
+        change_pipe = False
 
 
-    for id_player,player in enumerate(players):
-      if not crash_list[id_player]:
-        if player.playerFlapped:
-          if player.playery > -2 * IMAGES['player'][0].get_height():
-            player.playerVelY = playerFlapAcc
+    if i == 0:
+      for event in pygame.event.get():
+        if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+          pygame.quit()
+          sys.exit()
+        if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
+          if playery > -2 * IMAGES['player'][0].get_height():
+            playerVelY = playerFlapAcc
+            playerFlapped = True
+            SOUNDS['wing'].play()
+    elif i%4 == 0:
+      #choices = np.random.choice([0, 1], size=(len(players),))
+      for id_player in range(N_POPULATION):
+        if not crash_list[id_player]:
 
+          #if change_pipe: #THE PIPE POS DOESN't UPDATE UNTIL IT GOES OFF THE SCREEN
+          #  pipeMidPos_y = (lowerPipes[1]['y'] + 50)/SCREENHEIGHT
+          #  #dist_x_env = abs(players[id_player].playerx - upperPipes[1]['x']) / 400
+          #else:
+          #  pipeMidPos_y = (lowerPipes[0]['y'] + 50) / SCREENHEIGHT
+          #  dist_x_env = abs(players[id_player].playerx - upperPipes[0]['x']) / 400
+
+          #player_y_env = players[id_player].playery/380
+
+          #env = [player_y_env, pipeMidPos_y]
+
+
+          env = get_env_genetic({'x': players[id_player].playerx, 'y': players[id_player].playery, 'index': players[id_player].playerIndex}, upperPipes,
+                                lowerPipes)
+
+
+
+
+
+
+          #env = [pipeVelX_env, pipeMidPos_env, player_y_env,dist_x_env]
+
+          #env = [player_y_env, pipeMidPos_y,dist_x_env]
+
+          choice = GeneticAi_torch.predict(playerWeigths[id_player], env)
+
+          if choice == 1 and playery > -2 * IMAGES['player'][0].get_height():
+            players[id_player].playerVelY = players[id_player].playerFlapAcc
+            players[id_player].playerFlapped = True
+            SOUNDS['wing'].play()
+
+    else:
+      pass
+
+
+    # check for crash here
+    for j in range(len(crash_list)):
+      if not crash_list[j]:
+        crash_list[j] = checkCrash({'x': players[j].playerx, 'y': players[j].playery, 'index': players[j].playerIndex},
+                           upperPipes, lowerPipes)[0]
+
+        if crash_list[j] == True:
+          players[j].playerLast3Scores = [np.concatenate(([players[j].playerScore_i],players[j].playerLast3Scores[0][0:2]))]
+          players[j].meanScore_last3 = np.sum(players[j].playerLast3Scores)/3
+          #players[j].playerScore_i = player.playerScore_i - 100
+
+    alive = len([k for k, x in enumerate(crash_list) if x == False])
+    total_population = len(crash_list)
 
     if all(crash_list):
+      max_score = 0
+      max_score_index = 0
+
+      players.sort(key=lambda x: x.playerScore_i, reverse=True)
+      #players.sort(key=lambda x: x.meanScore_last3, reverse=True)
+
+      max_score = players[0].meanScore_last3
+      playerWeigths = []
+      playerLast3Scores = []
+
+      for index,player in enumerate(players):
+        playerWeigths.append(player.playerWeights)
+        playerLast3Scores.append(player.playerLast3Scores)
+        if index == 0:
+          print(player.playerScore_i)
+          print()
+          pass
+
+      playerWeigths = GeneticAi_torch.train(playerWeigths)
+      #if best_model_over_gen is not None:
+      #  playerWeigths[-3] = best_model_over_gen
+      n_generations +=1
+      mainGame(movementInfo)
+
       return {
-        'y': player.playery,
+        'y': players[max_score_index].playery,
         'groundCrash': True,
         'basex': basex,
         'upperPipes': upperPipes,
         'lowerPipes': lowerPipes,
-        'score': player.playerScore,
-        'playerVelY': player.playerVelY,
-        'playerRot': player.playerRot
+        'score': players[max_score_index].playerScore,
+        'playerVelY': players[max_score_index].playerVelY,
+        'playerRot': players[max_score_index].playerRot
       }
 
     # check for score
-    reward = 0
-    for id_player,player in enumerate(players):
-      player.playerMidPos = player.playerx + IMAGES['player'][0].get_width() / 2
-      player.playerReward += 1
-      if player.playerReward > 1000:
-        print()
-    for id_player,player in enumerate(players):
-      if not crash_list[id_player]:
-        for pipe in upperPipes:
-          pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
-          if pipeMidPos <= player.playerMidPos < pipeMidPos + 4:
-            player.playerScore += 1
-            player.playerReward += 100
-
-            SOUNDS['point'].play()
+    for j,player in enumerate(players):
+      if crash_list[j]:
+        continue
+      playerMidPos = player.playerx + IMAGES['player'][0].get_width() / 2
+      player.playerScore_i = player.playerScore_i  + 1
+      for pipe in upperPipes:
+        pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
+        if pipeMidPos <= playerMidPos < pipeMidPos + 4:
+          player.playerScore += 1
+          player.playerScore_i = player.playerScore_i + 100
+          next_pipe = True
+          next_pipe_count  = 0
+          print("NEXT PIPE " + str(next_pipe) + "!!!!!!!!!")
+          SOUNDS['point'].play()
 
     # playerIndex basex change
-
-    for id_player,player in enumerate(players):
+    for j,player in enumerate(players):
+      if crash_list[j]:
+        continue
       if (loopIter + 1) % 3 == 0:
         player.playerIndex = next(playerIndexGen)
       loopIter = (loopIter + 1) % 30
-      basex = -((-basex + 4) % baseShift)
+      basex = -((-basex + 100) % baseShift)
 
     # rotate the player
-
-    for id_player,player in enumerate(players):
+    for j,player in enumerate(players):
+      if crash_list[j]:
+        continue
       if player.playerRot > -90:
         player.playerRot -= player.playerVelRot
 
     # player's movement
-    for id_player,player in enumerate(players):
+    for j,player in enumerate(players):
+      if crash_list[j]:
+        continue
       if player.playerVelY < player.playerMaxVelY and not player.playerFlapped:
         player.playerVelY += player.playerAccY
       if player.playerFlapped:
@@ -476,18 +509,14 @@ def mainGame(movementInfo, train_info):
 
       # more rotation to cover the threshold (calculated in visible rotation)
 
-    for id_player,player in enumerate(players):
+    for j,player in enumerate(players):
+      if crash_list[j]:
+        continue
       player.playerHeight = IMAGES['player'][player.playerIndex].get_height()
       player.playery += min(player.playerVelY, BASEY - player.playery - player.playerHeight)
-
-      if not crash_list[id_player]:
-        if player.playery <= 0.0:
-          crash_list[id_player] = True
-          #env = get_env({'x': player.playerx, 'y': player.playery, 'index': player.playerIndex}, upperPipes, lowerPipes)
-          env = get_env_genetic({'x': player.playerx, 'y': player.playery, 'index': player.playerIndex}, upperPipes,
-                                lowerPipes)
-
-          output_queue.put((env, -100, True, id_player))
+      if player.playery <= 0.0:
+          #player.playery = max(0,player.playery)
+          crash_list[j] = True
 
     # move pipes to left
     for uPipe, lPipe in zip(upperPipes, lowerPipes):
@@ -506,6 +535,8 @@ def mainGame(movementInfo, train_info):
     if upperPipes[0]['x'] < -IMAGES['pipe'][0].get_width():
       upperPipes.pop(0)
       lowerPipes.pop(0)
+      next_pipe = False
+      next_pipe_count = 0
 
     # draw sprites
     SCREEN.blit(IMAGES['background'], (0, 0))
@@ -519,30 +550,29 @@ def mainGame(movementInfo, train_info):
 
     best_player_index = 0
     max_score = 0
+    for j,player in enumerate(players):
+      if player.playerScore_i > max_score_over_gen:
+        max_score_over_gen = player.playerScore_i
+        best_model_over_gen = player.playerWeights
 
-    for id_player in range(len(crash_list)):
-      if crash_list[id_player] == False:
-        break
+      if player.playerScore > max_score:
+        best_player_index = j
+        max_score = player.playerScore
 
-    alive = len([k for k, x in enumerate(crash_list) if x == False])
-    showScore(players[id_player].playerScore)
-    showAI_info(i,n_generations,max_score_over_gen, n_games,alive)
+
+
+    showScore(players[best_player_index].playerScore)
+    showAI_info(i,alive,total_population,max_score_over_gen, n_generations)
     # Player rotation has a threshold
-
-    for id_player,player in enumerate(players):
+    for j,player in enumerate(players):
+      if crash_list[j]:
+        continue
       visibleRot = player.playerRotThr
       if player.playerRot <= player.playerRotThr:
         visibleRot = player.playerRot
 
       playerSurface = pygame.transform.rotate(IMAGES['player'][player.playerIndex], visibleRot)
-
-      if not crash_list[id_player]:
-        SCREEN.blit(playerSurface, (player.playerx, player.playery))
-        #env = get_env({'x': player.playerx, 'y': player.playery, 'index': player.playerIndex}, upperPipes, lowerPipes)
-        env = get_env_genetic({'x': player.playerx, 'y': player.playery, 'index': player.playerIndex}, upperPipes,
-                              lowerPipes)
-        output_queue.put((env, player.playerReward, False, id_player))  # TODO: Change this to be more general.
-
+      SCREEN.blit(playerSurface, (player.playerx, player.playery))
 
     pygame.display.update()
     i+=1
@@ -570,14 +600,13 @@ def showGameOverScreen(crashInfo):
     SOUNDS['die'].play()
 
   while True:
-    if not input_queue.empty():
-      restart = input_queue.get()
-      if restart:
-        # if playery + playerHeight >= BASEY - 1:
-        return
-      else:
+    for event in pygame.event.get():
+      if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
         pygame.quit()
         sys.exit()
+      if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
+        if playery + playerHeight >= BASEY - 1:
+          return
 
     # player y shift
     if playery + playerHeight < BASEY - 1:
@@ -715,5 +744,5 @@ def getHitmask(image):
 
 
 if __name__ == '__main__':
-  #main()
+  main()
   print("TEST COMMIT")

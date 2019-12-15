@@ -2,12 +2,9 @@ import sys
 import numpy as np
 
 import torch
-import multiprocessing as mp
 
 import torch.nn as nn
 import torch.nn.functional as F
-from Game import flappy_AI_Supervises
-
 from torch.autograd import Variable
 cuda = torch.cuda.is_available()
 torch.set_grad_enabled(False)
@@ -17,17 +14,13 @@ class Net(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(input_dim, 2)
-        self.fc2 = nn.Linear(2, 2)
-        self.fc3 = nn.Linear(2, output_dim)
+        self.fc2 = nn.Linear(2, output_dim)
 
     def forward(self, x):
         x = self.fc1(x)
         x = F.sigmoid(x)
         # -----
-        #x = self.fc2(x)
-        #x = F.sigmoid(x)
-        #-------
-        x = self.fc3(x)
+        x = self.fc2(x)
         x = F.sigmoid(x)
         return x
 
@@ -60,22 +53,6 @@ def crossover(parent1, parent2):
     return child1, child2
 
 
-def mutate1(child1, child2):
-    model = child1
-    for name, param in model.named_parameters():
-        print(name, param.size())
-
-    for layer in model._modules.keys():
-        dimension = model._modules[layer].weight.data.shape()
-
-
-        for neuron in model._modules[layer].weight.data:
-            print()
-            return
-
-
-
-
 def mutate(child1, child2):
 
     fc1_weights = []
@@ -84,7 +61,7 @@ def mutate(child1, child2):
         for w_params in param:
             prob = np.random.rand()
             if prob > 0.8:
-                w_params += (np.random.randn() - 0.5)/2
+                w_params += np.random.randn() * 0.5 * 2 - 0.5
             w.append(w_params)
 
         fc1_weights.append(w)
@@ -98,7 +75,7 @@ def mutate(child1, child2):
         for w_params in param:
             prob = np.random.rand()
             if prob > 0.8:
-                w_params += (np.random.randn() - 0.5)/2
+                w_params += np.random.randn() * 0.5 * 2 - 0.5
             w.append(w_params)
 
         fc2_weights.append(w)
@@ -114,7 +91,7 @@ def mutate(child1, child2):
         for w_params in param:
             prob = np.random.rand()
             if prob > 0.8:
-                w_params += (np.random.randn() - 0.5)/2
+                w_params += np.random.randn() * 0.5 * 2 - 0.5
             w.append(w_params)
 
         fc1_weights.append(w)
@@ -128,7 +105,7 @@ def mutate(child1, child2):
         for w_params in param:
             prob = np.random.rand()
             if prob > 0.8:
-                w_params += (np.random.randn() - 0.5)/2
+                w_params += np.random.randn() * 0.5 * 2 - 0.5
             w.append(w_params)
 
         fc2_weights.append(w)
@@ -144,15 +121,8 @@ def evolution(chromosomes, child1, child2):
     chromosomes[-2] = child2
     return chromosomes
 
-def random_evolution_option2(chromosomes,prob_random):
-    for i in range(2,len(chromosomes) - 2):
-        prob = np.random.rand()
-        if prob > (1-prob_random):
-          chromosomes[i] = Net(2,1)
-    return chromosomes
 
-
-def random_evolution_option1(N_POPULATION,new_population,prob_random):
+def random_evolution(N_POPULATION,new_population,prob_random):
     n_random = int(prob_random*N_POPULATION)
 
     for i in range(n_random):
@@ -210,31 +180,33 @@ def child_generator(parent1, parent2, new_population, n_childs):
 
     return new_population
 
+def random_evolution_option2(chromosomes,prob_random):
+    for i in range(2,len(chromosomes) - 2):
+        prob = np.random.rand()
+        if prob > (1-prob_random):
+          chromosomes[i] = Net(2,1)
+    return chromosomes
 
 def train(chromosomes): #chromosomes are the models sorted by points
 
-    #option 1
-    ##################################################################
-
+    #option1
     #N_POPULAION = len(chromosomes)
     #new_population = elitism(chromosomes,0.2)
-    #new_population = random_evolution_option1(N_POPULAION,new_population,0.1)
+    #new_population = random_evolution(N_POPULAION,new_population,0.1)
 
     #n_childs = N_POPULAION - len(new_population)
 
     #parent1, parent2 = select(chromosomes)
     #new_population = child_generator(parent1, parent2, new_population, n_childs)
 
-
-    ####################################################################
-    # option2
-
+    #option2
 
     parent1, parent2 = select(chromosomes)
     child1, child2 = crossover(parent1, parent2)
     child1, child2 = mutate(child1, child2)
     new_population = evolution(chromosomes, child1, child2)
-    new_population = random_evolution_option2(new_population,0.2)
+    #new_population = random_evolution_option2(new_population,0.2)
+
 
     return new_population
 
@@ -254,98 +226,31 @@ def sigmoid(X):
 def predict(chromosomes, parameters):
 
 
+    # -- velx ¨= 4, pip_y ¨= 512, player_heigth = 512, dist = 288
     y = chromosomes.forward(torch.from_numpy(np.array(parameters)).float())
 
+    prob = np.random.normal(0.5, 0.1, 1)
+    #print(parameters)
+    #print(y)
 
     if y > 0.5:
-        return True
+        return 1
     else:
-        return False
+        return 0
 
-
-class Player():
-    def __init__(self, model, reward, state, done):
-        self.state = state
-        self.model = model
-        self.reward = reward
-        self.isdone = done
-
-
-
-def main():
-    #PARAMETERS
-    n_players = 50
-    n_generations = 10000
-
-    ######################
-
-    input_queue = mp.Queue()
-    output_queue = mp.Queue()
-
-    p = mp.Process(target=flappy_AI_Supervises.main, args=(input_queue, output_queue))
-    p.start()
-
-
-    crash_list = [False]* n_players
-
-    new_population = []
-
-    for i in range(n_players):
-        new_population.append(Net(2,1))
-
-    for generation  in range(n_generations):
-
-        players = []
-
-        for i in range(n_players):
-            players.append(Player(new_population[i], 0, None, False))
-
-        input_queue.put([n_generations, n_generations, n_players])  # This starts next episode
-        #input_queue.put([True, 0])  # This starts next episode
-        #output_queue.get()  # Gets blank response to confirm episode started
-
-        for id_player in range(n_players):
-            input_queue.put([False,id_player])  # Input initial action as no flap
-
-        for n in range(n_players):
-            state, reward, done, id_player = output_queue.get()  # Get initial state
-            players[id_player].state = state
-            players[id_player].reward = reward
-            crash_list[id_player] = done
-
-        alive_players = n_players
-
-        while any(x == False for x in crash_list):
-            for id_player,player in enumerate(players):
-                if not crash_list[id_player]:
-                    choice = predict(player.model,player.state)
-
-                    #choice = np.random.choice([0,1],p=(0.9,0.1))
-
-                    input_queue.put([choice, id_player])
-
-            #input()
-            for id_player in range(alive_players):
-                state, reward, done, id_player1 = output_queue.get()
-                players[id_player].state = state
-                players[id_player].reward = reward
-
-                if done:
-                    crash_list[id_player1] = True
-                    alive_players -= 1
-
-        players.sort(key=lambda x: x.reward, reverse=True)
-        chromosomes_2_train = []
-
-        for player in players:
-            print(player.reward)
-            chromosomes_2_train.append(player.model)
-
-        #input()
-        new_population = train(chromosomes_2_train)
-
+    '''
+    if y > 0.6:  # -- We supose al the weigths starts with 0.5 mean
+        return 1
+    elif y < 0.4 :
+        return 0
+    else:
+        prob = np.random.rand()
+        if prob  > 0.7:
+            return 1
+        else:
+            return 0
+    '''
 
 if __name__ == "__main__":
     # -- Matrix with the chromosomes of each player sorted
-    main()
     print()
